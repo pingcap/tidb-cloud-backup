@@ -29,6 +29,7 @@ func main() {
 		log.Fatalf("Failed to setup bucket: %s", err)
 	}
 
+	base := filepath.Base(backupDir)
 	err = filepath.Walk(backupDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -40,8 +41,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to read file: %s", err)
 		}
-
-		w, err := b.NewWriter(ctx, path, nil)
+		w, err := b.NewWriter(ctx, filepath.Join(base, info.Name()), nil)
 		if err != nil {
 			log.Fatalf("Failed to obtain writer: %s", err)
 		}
