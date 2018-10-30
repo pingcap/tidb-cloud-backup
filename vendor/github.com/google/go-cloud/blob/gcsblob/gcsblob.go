@@ -12,8 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package gcsblob provides an implementation of using blob API on GCS.
-// It is a wrapper around GCS client library.
+// Package gcsblob provides an implementation of blob that uses GCS.
+//
+// It exposes the following types for As:
+// Bucket: *storage.Client
+// ListObject: storage.ObjectAttrs
+// ListOptions.BeforeList: *storage.Query
+// Reader: storage.Reader
+// Attributes: storage.ObjectAttrs
+// WriterOptions.BeforeWrite: *storage.Writer
 package gcsblob
 
 import (
@@ -30,19 +37,43 @@ import (
 
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/googleapi"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 )
 
+const defaultPageSize = 1000
+
+// Options sets options for constructing a *blob.Bucket backed by GCS.
+type Options struct {
+	// GoogleAccessID represents the authorizer for SignedURL.
+	// Required to use SignedURL.
+	// See https://godoc.org/cloud.google.com/go/storage#SignedURLOptions.
+	GoogleAccessID string
+
+	// PrivateKey is the Google service account private key.
+	// Exactly one of PrivateKey or SignBytes must be non-nil to use SignedURL.
+	// See https://godoc.org/cloud.google.com/go/storage#SignedURLOptions.
+	PrivateKey []byte
+
+	// SignBytes is a function for implementing custom signing.
+	// Exactly one of PrivateKey or SignBytes must be non-nil to use SignedURL.
+	// See https://godoc.org/cloud.google.com/go/storage#SignedURLOptions.
+	SignBytes func([]byte) ([]byte, error)
+}
+
 // OpenBucket returns a GCS Bucket that communicates using the given HTTP client.
-func OpenBucket(ctx context.Context, bucketName string, client *gcp.HTTPClient) (*blob.Bucket, error) {
+func OpenBucket(ctx context.Context, bucketName string, client *gcp.HTTPClient, opts *Options) (*blob.Bucket, error) {
 	if client == nil {
-		return nil, fmt.Errorf("NewBucket requires an HTTP client to communicate using")
+		return nil, fmt.Errorf("OpenBucket requires an HTTP client")
 	}
 	c, err := storage.NewClient(ctx, option.WithHTTPClient(&client.Client))
 	if err != nil {
 		return nil, err
 	}
-	return blob.NewBucket(&bucket{name: bucketName, client: c}), nil
+	if opts == nil {
+		opts = &Options{}
+	}
+	return blob.NewBucket(&bucket{name: bucketName, client: c, opts: opts}), nil
 }
 
 // bucket represents a GCS bucket, which handles read, write and delete operations
@@ -50,16 +81,16 @@ func OpenBucket(ctx context.Context, bucketName string, client *gcp.HTTPClient) 
 type bucket struct {
 	name   string
 	client *storage.Client
+	opts   *Options
 }
 
 var emptyBody = ioutil.NopCloser(strings.NewReader(""))
 
-// reader reads a GCS object. It implements io.ReadCloser.
+// reader reads a GCS object. It implements driver.Reader.
 type reader struct {
-	body        io.ReadCloser
-	size        int64
-	contentType string
-	updated     time.Time
+	body  io.ReadCloser
+	attrs driver.ReaderAttributes
+	raw   *storage.Reader
 }
 
 func (r *reader) Read(p []byte) (int, error) {
@@ -71,38 +102,110 @@ func (r *reader) Close() error {
 	return r.body.Close()
 }
 
-func (r *reader) Attrs() *driver.ObjectAttrs {
-	return &driver.ObjectAttrs{
-		Size:        r.size,
-		ContentType: r.contentType,
-		ModTime:     r.updated,
-	}
+func (r *reader) Attributes() driver.ReaderAttributes {
+	return r.attrs
 }
 
-// NewRangeReader returns a Reader that reads part of an object, reading at most
-// length bytes starting at the given offset. If length is 0, it will read only
-// the metadata. If length is negative, it will read till the end of the object.
-func (b *bucket) NewRangeReader(ctx context.Context, key string, offset, length int64) (driver.Reader, error) {
-	if offset < 0 {
-		return nil, fmt.Errorf("negative offset %d", offset)
+func (r *reader) As(i interface{}) bool {
+	p, ok := i.(*storage.Reader)
+	if !ok {
+		return false
 	}
+	*p = *r.raw
+	return true
+}
+
+// ListPaged implements driver.ListPaged.
+func (b *bucket) ListPaged(ctx context.Context, opts *driver.ListOptions) (*driver.ListPage, error) {
 	bkt := b.client.Bucket(b.name)
-	obj := bkt.Object(key)
-	if length == 0 {
-		attrs, err := obj.Attrs(ctx)
-		if err != nil {
-			if isErrNotExist(err) {
-				return nil, gcsError{bucket: b.name, key: key, msg: err.Error(), kind: driver.NotFound}
+	query := &storage.Query{Prefix: opts.Prefix}
+	if opts.BeforeList != nil {
+		asFunc := func(i interface{}) bool {
+			p, ok := i.(**storage.Query)
+			if !ok {
+				return false
 			}
+			*p = query
+			return true
+		}
+		if err := opts.BeforeList(asFunc); err != nil {
 			return nil, err
 		}
-		return &reader{
-			body:        emptyBody,
-			size:        attrs.Size,
-			contentType: attrs.ContentType,
-			updated:     attrs.Updated,
-		}, nil
 	}
+	pageSize := opts.PageSize
+	if pageSize == 0 {
+		pageSize = defaultPageSize
+	}
+	iter := bkt.Objects(ctx, query)
+	pager := iterator.NewPager(iter, pageSize, string(opts.PageToken))
+	var objects []*storage.ObjectAttrs
+	nextPageToken, err := pager.NextPage(&objects)
+	if err != nil {
+		return nil, err
+	}
+	page := driver.ListPage{NextPageToken: []byte(nextPageToken)}
+	if len(objects) > 0 {
+		page.Objects = make([]*driver.ListObject, len(objects))
+		for i, obj := range objects {
+			page.Objects[i] = &driver.ListObject{
+				Key:     obj.Name,
+				ModTime: obj.Updated,
+				Size:    obj.Size,
+				AsFunc: func(i interface{}) bool {
+					p, ok := i.(*storage.ObjectAttrs)
+					if !ok {
+						return false
+					}
+					*p = *obj
+					return true
+				},
+			}
+		}
+	}
+	return &page, nil
+}
+
+// As implements driver.As.
+func (b *bucket) As(i interface{}) bool {
+	p, ok := i.(**storage.Client)
+	if !ok {
+		return false
+	}
+	*p = b.client
+	return true
+}
+
+// Attributes implements driver.Attributes.
+func (b *bucket) Attributes(ctx context.Context, key string) (driver.Attributes, error) {
+	bkt := b.client.Bucket(b.name)
+	obj := bkt.Object(key)
+	attrs, err := obj.Attrs(ctx)
+	if err != nil {
+		if isErrNotExist(err) {
+			return driver.Attributes{}, gcsError{bucket: b.name, key: key, msg: err.Error(), kind: driver.NotFound}
+		}
+		return driver.Attributes{}, err
+	}
+	return driver.Attributes{
+		ContentType: attrs.ContentType,
+		Metadata:    attrs.Metadata,
+		ModTime:     attrs.Updated,
+		Size:        attrs.Size,
+		AsFunc: func(i interface{}) bool {
+			p, ok := i.(*storage.ObjectAttrs)
+			if !ok {
+				return false
+			}
+			*p = *attrs
+			return true
+		},
+	}, nil
+}
+
+// NewRangeReader implements driver.NewRangeReader.
+func (b *bucket) NewRangeReader(ctx context.Context, key string, offset, length int64) (driver.Reader, error) {
+	bkt := b.client.Bucket(b.name)
+	obj := bkt.Object(key)
 	r, err := obj.NewRangeReader(ctx, offset, length)
 	if err != nil {
 		if isErrNotExist(err) {
@@ -110,39 +213,43 @@ func (b *bucket) NewRangeReader(ctx context.Context, key string, offset, length 
 		}
 		return nil, err
 	}
-	// updated is set to zero value when non-nil error returned, no need to check or report.
-	updated, _ := r.LastModified()
+	modTime, _ := r.LastModified()
 	return &reader{
-		body:        r,
-		size:        r.Size(),
-		contentType: r.ContentType(),
-		updated:     updated,
+		body: r,
+		attrs: driver.ReaderAttributes{
+			ContentType: r.ContentType(),
+			ModTime:     modTime,
+			Size:        r.Size(),
+		},
+		raw: r,
 	}, nil
 }
 
-// NewTypedWriter returns Writer that writes to an object associated with key.
-//
-// A new object will be created unless an object with this key already exists.
-// Otherwise any previous object with the same name will be replaced.
-// The object will not be available (and any previous object will remain)
-// until Close has been called.
-//
-// A WriterOptions can be given to change the default behavior of the Writer.
-//
-// The caller must call Close on the returned Writer when done writing.
+// NewTypedWriter implements driver.NewTypedWriter.
 func (b *bucket) NewTypedWriter(ctx context.Context, key string, contentType string, opts *driver.WriterOptions) (driver.Writer, error) {
 	bkt := b.client.Bucket(b.name)
 	obj := bkt.Object(key)
 	w := obj.NewWriter(ctx)
 	w.ContentType = contentType
-	if opts != nil {
 		w.ChunkSize = bufferSize(opts.BufferSize)
+		w.Metadata = opts.Metadata
+	if opts.BeforeWrite != nil {
+		asFunc := func(i interface{}) bool {
+			p, ok := i.(**storage.Writer)
+			if !ok {
+				return false
+			}
+			*p = w
+			return true
+		}
+		if err := opts.BeforeWrite(asFunc); err != nil {
+			return nil, err
+		}
 	}
 	return w, nil
 }
 
-// Delete deletes the object associated with key. It is a no-op if that object
-// does not exist.
+// Delete implements driver.Delete.
 func (b *bucket) Delete(ctx context.Context, key string) error {
 	bkt := b.client.Bucket(b.name)
 	obj := bkt.Object(key)
@@ -151,6 +258,20 @@ func (b *bucket) Delete(ctx context.Context, key string) error {
 		return gcsError{bucket: b.name, key: key, msg: err.Error(), kind: driver.NotFound}
 	}
 	return err
+}
+
+func (b *bucket) SignedURL(ctx context.Context, key string, dopts *driver.SignedURLOptions) (string, error) {
+	if b.opts.GoogleAccessID == "" || (b.opts.PrivateKey == nil && b.opts.SignBytes == nil) {
+		return "", fmt.Errorf("to use SignedURL, you must call OpenBucket with a valid Options.GoogleAccessID and exactly one of Options.PrivateKey or Options.SignBytes")
+	}
+	opts := &storage.SignedURLOptions{
+		Expires:        time.Now().Add(dopts.Expiry),
+		Method:         "GET",
+		GoogleAccessID: b.opts.GoogleAccessID,
+		PrivateKey:     b.opts.PrivateKey,
+		SignBytes:      b.opts.SignBytes,
+	}
+	return storage.SignedURL(b.name, key, opts)
 }
 
 func bufferSize(size int) int {
@@ -171,7 +292,7 @@ func (e gcsError) Error() string {
 	return fmt.Sprintf("gcs://%s/%s: %s", e.bucket, e.key, e.msg)
 }
 
-func (e gcsError) BlobError() driver.ErrorKind {
+func (e gcsError) Kind() driver.ErrorKind {
 	return e.kind
 }
 

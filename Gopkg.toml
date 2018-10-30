@@ -31,7 +31,7 @@
 
 [[constraint]]
   name = "github.com/google/go-cloud"
-  version = "0.3.0"
+  revision = "11bb776c80e5cc8abaa6c9aead66d5c1129c9632"
 
 [prune]
   go-tests = true
