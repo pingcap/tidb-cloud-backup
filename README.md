@@ -4,12 +4,12 @@
 
 ### uploader
 ```shell
-cd upload && go build -o ../bin/uploader && cd ../
+go build -o bin/uploader upload/main.go
 ```
 
 ### downloader
 ``` shell
-cd download && go build -o ../bin/downloader && cd ../
+go build -o bin/downloader download/main.go
 ```
 
 ### build image
@@ -26,7 +26,7 @@ And then go to GCP console to create a cloud storage bucket.
 ```shell
 ts=$(date +%Y-%m-%dT%H%M%S)
 
-docker run -v $PWD/tidb_backup_${ts}:/backup tennix/tidb-cloud-backup ./mydumper \
+docker run -v $PWD/tidb_backup_${ts}:/backup tennix/tidb-cloud-backup /mydumper \
     --outputdir=/backup \
     --host=<tidb-host> \
     --port=4000 \

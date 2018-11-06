@@ -35,7 +35,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to setup bucket: %s", err)
 	}
-	fmt.Sprintf("")
 	err = download(ctx, b, srcDir, destDir)
 	if err != nil {
 		log.Fatalf("Failed to download data from bucket: %s/%s to %s,error: %s", bucket, srcDir, destDir, err)
@@ -59,9 +58,9 @@ func download(ctx context.Context, b *blob.Bucket, srcDir, destDir string) error
 		if obj == nil {
 			break
 		}
-		fmt.Println(fmt.Sprintf("Begin download file: %s", obj.Key))
+		log.Println(fmt.Sprintf("Begin download file: %s", obj.Key))
 		downloadFile(ctx, b, localBucket, obj.Key)
-		fmt.Println(fmt.Sprintf("Download file: %s successfully", obj.Key))
+		log.Println(fmt.Sprintf("Download file: %s successfully", obj.Key))
 	}
 	return nil
 }
