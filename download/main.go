@@ -59,7 +59,11 @@ func download(ctx context.Context, b *blob.Bucket, srcDir, destDir string) error
 			break
 		}
 		log.Println(fmt.Sprintf("Begin download file: %s", obj.Key))
-		downloadFile(ctx, b, localBucket, obj.Key)
+		err = downloadFile(ctx, b, localBucket, obj.Key)
+		if err != nil {
+			log.Println(fmt.Sprintf("Download file: %s failed, error: %v", obj.Key, err))
+			return err
+		}
 		log.Println(fmt.Sprintf("Download file: %s successfully", obj.Key))
 	}
 	return nil
