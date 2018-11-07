@@ -12,7 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package s3blob provides an implementation of using blob API on S3.
+// Package s3blob provides an implementation of blob using S3.
+//
+// It exposes the following types for As:
+// Bucket: *s3.S3
+// ListObject: s3.Object
+// ListOptions.BeforeList: *s3.ListObjectsV2Input
+// Reader: s3.GetObjectOutput
+// Attributes: s3.HeadObjectOutput
+// WriterOptions.BeforeWrite: *s3manager.UploadInput
 package s3blob
 
 import (
@@ -23,7 +31,6 @@ import (
 	"io/ioutil"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/google/go-cloud/blob"
 	"github.com/google/go-cloud/blob/driver"
@@ -34,6 +41,8 @@ import (
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/aws/aws-sdk-go/service/s3/s3manager"
 )
+
+const defaultPageSize = 1000
 
 // OpenBucket returns an S3 Bucket.
 func OpenBucket(ctx context.Context, sess client.ConfigProvider, bucketName string) (*blob.Bucket, error) {
@@ -51,10 +60,9 @@ var emptyBody = ioutil.NopCloser(strings.NewReader(""))
 
 // reader reads an S3 object. It implements io.ReadCloser.
 type reader struct {
-	body        io.ReadCloser
-	size        int64
-	contentType string
-	modTime     time.Time
+	body  io.ReadCloser
+	attrs driver.ReaderAttributes
+	raw   *s3.GetObjectOutput
 }
 
 func (r *reader) Read(p []byte) (int, error) {
@@ -66,24 +74,27 @@ func (r *reader) Close() error {
 	return r.body.Close()
 }
 
-func (r *reader) Attrs() *driver.ObjectAttrs {
-	return &driver.ObjectAttrs{
-		Size:        r.size,
-		ContentType: r.contentType,
-		ModTime:     r.modTime,
+func (r *reader) As(i interface{}) bool {
+	p, ok := i.(*s3.GetObjectOutput)
+	if !ok {
+		return false
 	}
+	*p = *r.raw
+	return true
+}
+
+func (r *reader) Attributes() driver.ReaderAttributes {
+	return r.attrs
 }
 
 // writer writes an S3 object, it implements io.WriteCloser.
 type writer struct {
 	w *io.PipeWriter
 
-	bucket      string
-	key         string
-	ctx         context.Context
-	uploader    *s3manager.Uploader
-	contentType string
-	donec       chan struct{} // closed when done writing
+	ctx      context.Context
+	uploader *s3manager.Uploader
+	req      *s3manager.UploadInput
+	donec    chan struct{} // closed when done writing
 	// The following fields will be written before donec closes:
 	err error
 }
@@ -110,12 +121,8 @@ func (w *writer) open() error {
 	go func() {
 		defer close(w.donec)
 
-		_, err := w.uploader.UploadWithContext(w.ctx, &s3manager.UploadInput{
-			Bucket:      aws.String(w.bucket),
-			ContentType: aws.String(w.contentType),
-			Key:         aws.String(w.key),
-			Body:        pr,
-		})
+		w.req.Body = pr
+		_, err := w.uploader.UploadWithContext(w.ctx, w.req)
 		if err != nil {
 			w.err = err
 			pr.CloseWithError(err)
@@ -145,12 +152,8 @@ func (w *writer) touch() {
 		return
 	}
 	defer close(w.donec)
-	_, w.err = w.uploader.UploadWithContext(w.ctx, &s3manager.UploadInput{
-		Bucket:      aws.String(w.bucket),
-		ContentType: aws.String(w.contentType),
-		Key:         aws.String(w.key),
-		Body:        emptyBody,
-	})
+	w.req.Body = emptyBody
+	_, w.err = w.uploader.UploadWithContext(w.ctx, w.req)
 }
 
 // bucket represents an S3 bucket and handles read, write and delete operations.
@@ -160,16 +163,114 @@ type bucket struct {
 	client *s3.S3
 }
 
-// NewRangeReader returns a reader that reads part of an object, reading at most
-// length bytes starting at the given offset. If length is 0, it will read only
-// the metadata. If length is negative, it will read till the end of the object.
+// ListPaged implements driver.ListPaged.
+func (b *bucket) ListPaged(ctx context.Context, opts *driver.ListOptions) (*driver.ListPage, error) {
+	pageSize := opts.PageSize
+	if pageSize == 0 {
+		pageSize = defaultPageSize
+	}
+	in := &s3.ListObjectsV2Input{
+		Bucket:  aws.String(b.name),
+		MaxKeys: aws.Int64(int64(pageSize)),
+	}
+	if len(opts.PageToken) > 0 {
+		in.ContinuationToken = aws.String(string(opts.PageToken))
+	}
+	if opts.Prefix != "" {
+		in.Prefix = aws.String(opts.Prefix)
+	}
+	if opts.BeforeList != nil {
+		asFunc := func(i interface{}) bool {
+			p, ok := i.(**s3.ListObjectsV2Input)
+			if !ok {
+				return false
+			}
+			*p = in
+			return true
+		}
+		if err := opts.BeforeList(asFunc); err != nil {
+			return nil, err
+		}
+	}
+	req, resp := b.client.ListObjectsV2Request(in)
+	if err := req.Send(); err != nil {
+		return nil, err
+	}
+	page := driver.ListPage{}
+	if resp.NextContinuationToken != nil {
+		page.NextPageToken = []byte(*resp.NextContinuationToken)
+	}
+	if len(resp.Contents) > 0 {
+		page.Objects = make([]*driver.ListObject, len(resp.Contents))
+		for i, obj := range resp.Contents {
+			page.Objects[i] = &driver.ListObject{
+				Key:     *obj.Key,
+				ModTime: *obj.LastModified,
+				Size:    *obj.Size,
+				AsFunc: func(i interface{}) bool {
+					p, ok := i.(*s3.Object)
+					if !ok {
+						return false
+					}
+					*p = *obj
+					return true
+				},
+			}
+		}
+	}
+	return &page, nil
+}
+
+// As implements driver.As.
+func (b *bucket) As(i interface{}) bool {
+	p, ok := i.(**s3.S3)
+	if !ok {
+		return false
+	}
+	*p = b.client
+	return true
+}
+
+// Attributes implements driver.Attributes.
+func (b *bucket) Attributes(ctx context.Context, key string) (driver.Attributes, error) {
+	in := &s3.HeadObjectInput{
+		Bucket: aws.String(b.name),
+		Key:    aws.String(key),
+	}
+	req, resp := b.client.HeadObjectRequest(in)
+	if err := req.Send(); err != nil {
+		if e := isErrNotExist(err); e != nil {
+			return driver.Attributes{}, s3Error{bucket: b.name, key: key, msg: e.Message(), kind: driver.NotFound}
+		}
+		return driver.Attributes{}, err
+	}
+	var md map[string]string
+	if len(resp.Metadata) > 0 {
+		md = make(map[string]string, len(resp.Metadata))
+		for k, v := range resp.Metadata {
+			if v != nil {
+				md[k] = aws.StringValue(v)
+			}
+		}
+	}
+	return driver.Attributes{
+		ContentType: aws.StringValue(resp.ContentType),
+		Metadata:    md,
+		ModTime:     aws.TimeValue(resp.LastModified),
+		Size:        aws.Int64Value(resp.ContentLength),
+		AsFunc: func(i interface{}) bool {
+			p, ok := i.(*s3.HeadObjectOutput)
+			if !ok {
+				return false
+			}
+			*p = *resp
+			return true
+		},
+	}, nil
+}
+
+// NewRangeReader implements driver.NewRangeReader.
 func (b *bucket) NewRangeReader(ctx context.Context, key string, offset, length int64) (driver.Reader, error) {
-	if offset < 0 {
-		return nil, fmt.Errorf("negative offset %d", offset)
-	}
-	if length == 0 {
-		return b.newMetadataReader(ctx, key)
-	}
 	in := &s3.GetObjectInput{
 		Bucket: aws.String(b.name),
 		Key:    aws.String(key),
@@ -187,10 +288,13 @@ func (b *bucket) NewRangeReader(ctx context.Context, key string, offset, length 
 		return nil, err
 	}
 	return &reader{
-		body:        resp.Body,
-		contentType: aws.StringValue(resp.ContentType),
-		size:        getSize(resp),
-		modTime:     aws.TimeValue(resp.LastModified),
+		body: resp.Body,
+		attrs: driver.ReaderAttributes{
+			ContentType: aws.StringValue(resp.ContentType),
+			ModTime:     aws.TimeValue(resp.LastModified),
+			Size:        getSize(resp),
+		},
+		raw: resp,
 	}, nil
 }
 
@@ -211,65 +315,67 @@ func getSize(resp *s3.GetObjectOutput) int64 {
 	return size
 }
 
-func (b *bucket) newMetadataReader(ctx context.Context, key string) (driver.Reader, error) {
-	in := &s3.HeadObjectInput{
-		Bucket: aws.String(b.name),
-		Key:    aws.String(key),
-	}
-	req, resp := b.client.HeadObjectRequest(in)
-	if err := req.Send(); err != nil {
-		if e := isErrNotExist(err); e != nil {
-			return nil, s3Error{bucket: b.name, key: key, msg: e.Message(), kind: driver.NotFound}
-		}
-		return nil, err
-	}
-	return &reader{
-		body:        emptyBody,
-		contentType: aws.StringValue(resp.ContentType),
-		size:        aws.Int64Value(resp.ContentLength),
-		modTime:     aws.TimeValue(resp.LastModified),
-	}, nil
-}
-
-// NewTypedWriter returns a writer that writes to an object associated with key.
-//
-// A new object will be created unless an object with this key already exists.
-// Otherwise any previous object with the same name will be replaced.
-// The object will not be available (and any previous object will remain)
-// until Close has been called.
-//
-// A WriterOptions can be given to change the default behavior of the writer.
-//
-// The caller must call Close on the returned writer when done writing.
+// NewTypedWriter implements driver.NewTypedWriter.
 func (b *bucket) NewTypedWriter(ctx context.Context, key string, contentType string, opts *driver.WriterOptions) (driver.Writer, error) {
 	uploader := s3manager.NewUploader(b.sess, func(u *s3manager.Uploader) {
-		if opts != nil {
+		if opts.BufferSize != 0 {
 			u.PartSize = int64(opts.BufferSize)
 		}
 	})
-	w := &writer{
-		bucket:      b.name,
-		ctx:         ctx,
-		key:         key,
-		uploader:    uploader,
-		contentType: contentType,
-		donec:       make(chan struct{}),
+	var metadata map[string]*string
+	if len(opts.Metadata) > 0 {
+		metadata = make(map[string]*string, len(opts.Metadata))
+		for k, v := range opts.Metadata {
+			metadata[k] = aws.String(v)
+		}
 	}
-	return w, nil
+	req := &s3manager.UploadInput{
+		Bucket:      aws.String(b.name),
+		ContentType: aws.String(contentType),
+		Key:         aws.String(key),
+		Metadata:    metadata,
+	}
+	if opts.BeforeWrite != nil {
+		asFunc := func(i interface{}) bool {
+			p, ok := i.(**s3manager.UploadInput)
+			if !ok {
+				return false
+			}
+			*p = req
+			return true
+		}
+		if err := opts.BeforeWrite(asFunc); err != nil {
+			return nil, err
+		}
+	}
+	return &writer{
+		ctx:      ctx,
+		uploader: uploader,
+		req:      req,
+		donec:    make(chan struct{}),
+	}, nil
 }
 
-// Delete deletes the object associated with key.
+// Delete implements driver.Delete.
 func (b *bucket) Delete(ctx context.Context, key string) error {
-	if _, err := b.newMetadataReader(ctx, key); err != nil {
+	if _, err := b.Attributes(ctx, key); err != nil {
 		return err
 	}
 	input := &s3.DeleteObjectInput{
 		Bucket: aws.String(b.name),
 		Key:    aws.String(key),
 	}
-
 	req, _ := b.client.DeleteObjectRequest(input)
 	return req.Send()
+}
+
+func (b *bucket) SignedURL(ctx context.Context, key string, opts *driver.SignedURLOptions) (string, error) {
+	in := &s3.GetObjectInput{
+		Bucket: aws.String(b.name),
+		Key:    aws.String(key),
+	}
+	req, _ := b.client.GetObjectRequest(in)
+	return req.Presign(opts.Expiry)
 }
 
 type s3Error struct {
@@ -277,7 +383,7 @@ type s3Error struct {
 	kind             driver.ErrorKind
 }
 
-func (e s3Error) BlobError() driver.ErrorKind {
+func (e s3Error) Kind() driver.ErrorKind {
 	return e.kind
 }
 

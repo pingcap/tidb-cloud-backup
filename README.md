@@ -2,10 +2,19 @@
 
 ## Build
 
+### uploader
 ```shell
-go build -o docker/uploader
+go build -o bin/uploader upload/main.go
+```
 
-docker build -t tennix/tidb-cloud-backup docker
+### downloader
+``` shell
+go build -o bin/downloader download/main.go
+```
+
+### build image
+``` shell
+docker build -t tennix/tidb-cloud-backup .
 ```
 
 ## Run
@@ -17,7 +26,7 @@ And then go to GCP console to create a cloud storage bucket.
 ```shell
 ts=$(date +%Y-%m-%dT%H%M%S)
 
-docker run -v $PWD/tidb_backup_${ts}:/backup tennix/tidb-cloud-backup mydumper \
+docker run -v $PWD/tidb_backup_${ts}:/backup tennix/tidb-cloud-backup /mydumper \
     --outputdir=/backup \
     --host=<tidb-host> \
     --port=4000 \
@@ -31,4 +40,13 @@ docker run -v $PWD/tidb_backup_${ts}:/tidb_backup_${ts} \
     --cloud=gcp \
     --bucket=<bucket-name> \
     --backup-dir=/tidb_backup_${ts}
+
+docker run -v /path/to/google-application-credentials:/gcp-credentials.json \
+    -v /path/to/destDir:/data \
+    -e GOOGLE_APPLICATION_CREDENTIALS=/gcp-credentials.json
+    tennix/tidb-cloud-backup downloader \
+    --cloud=gcp \
+    --bucket=<bucket-name> \
+    --srcDir=<src-dir-in-bucket> \
+    --destDir=/data
 ```
