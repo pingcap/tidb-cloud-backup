@@ -37,7 +37,7 @@ func main() {
 	}
 	err = download(ctx, b, srcDir, destDir)
 	if err != nil {
-		log.Fatalf("Failed to download data from bucket: %s/%s to %s,error: %s", bucket, srcDir, destDir, err)
+		log.Fatalf("Failed to download data from bucket: %s/%s to %s, error: %s", bucket, srcDir, destDir, err)
 	}
 }
 
@@ -49,11 +49,11 @@ func download(ctx context.Context, b *blob.Bucket, srcDir, destDir string) error
 	iter := b.List(&blob.ListOptions{Prefix: srcDir})
 	for {
 		obj, err := iter.Next(ctx)
+		if err == io.EOF {
+			break
+		}
 		if err != nil {
 			return err
-		}
-		if obj == nil {
-			break
 		}
 		log.Println(fmt.Sprintf("Begin download file: %s", obj.Key))
 		err = downloadFile(ctx, b, localBucket, obj.Key)
