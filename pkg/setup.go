@@ -3,10 +3,12 @@ package pkg
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/s3"
 	"gocloud.dev/blob"
 	"gocloud.dev/blob/gcsblob"
 	"gocloud.dev/blob/s3blob"
@@ -58,6 +60,44 @@ func SetupAWS(ctx context.Context, bucket string) (*blob.Bucket, error) {
 	return s3blob.OpenBucket(ctx, s, bucket, nil)
 }
 
+// S3Helper contains pointer to s3 client and wrappers for basic object store operations
+type S3Helper struct {
+	s3client *s3.S3
+}
+
+// IsBucketPresent returns true if a bucket is present and false if it's not present
+func (h *S3Helper) IsBucketPresent(bucket string) (bool, error) {
+	_, err := h.s3client.HeadBucket(&s3.HeadBucketInput{
+		Bucket: aws.String(bucket),
+	})
+	if err != nil && strings.Contains(err.Error(), "NotFound") {
+		return false, nil
+	} else if err == nil {
+		return true, nil
+	}
+	return false, err
+}
+
+// CreateBucket creates bucket using s3 client
+func (h *S3Helper) CreateBucket(name string) error {
+	_, err := h.s3client.CreateBucket(&s3.CreateBucketInput{
+		Bucket: aws.String(name),
+	})
+	return err
+}
+
+// checkBucket creates bucket if it's not present
+func checkBucket(bucket string, config *aws.Config) error {
+	s := session.Must(session.NewSession(config))
+	c := s3.New(s, config)
+	s3helper := &S3Helper{c}
+	result, err := s3helper.IsBucketPresent(bucket)
+	if result == false && err == nil {
+		return s3helper.CreateBucket(bucket)
+	}
+	return err
+}
+
 // SetupCeph creates a connection to ROOK Ceph object storage with the S3 API.
 // See here for more information:
 // https://rook.io/docs/rook/v0.9/ceph-object.html
@@ -75,6 +115,11 @@ func SetupCeph(ctx context.Context, bucket, endpoint string) (*blob.Bucket, erro
 		WithS3ForcePathStyle(true).
 		WithDisableSSL(true).
 		WithMaxRetries(20)
+
+	err := checkBucket(bucket, awsConfig)
+	if err != nil {
+		return nil, err
+	}
 
 	s := session.Must(session.NewSession(awsConfig))
 	return s3blob.OpenBucket(ctx, s, bucket, nil)
