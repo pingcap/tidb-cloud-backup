@@ -7,19 +7,21 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/google/go-cloud/blob"
-	"github.com/google/go-cloud/blob/gcsblob"
-	"github.com/google/go-cloud/blob/s3blob"
-	"github.com/google/go-cloud/gcp"
+	"gocloud.dev/blob"
+	"gocloud.dev/blob/gcsblob"
+	"gocloud.dev/blob/s3blob"
+	"gocloud.dev/gcp"
 )
 
 // SetupBucket creates a connection to a particular cloud provider's blob storage.
-func SetupBucket(ctx context.Context, cloud, bucket string) (*blob.Bucket, error) {
+func SetupBucket(ctx context.Context, cloud, bucket, endpoint string) (*blob.Bucket, error) {
 	switch cloud {
 	case "aws":
 		return SetupAWS(ctx, bucket)
 	case "gcp":
 		return SetupGCP(ctx, bucket)
+	case "ceph":
+		return SetupCeph(ctx, bucket, endpoint)
 	default:
 		return nil, fmt.Errorf("invalid cloud provider: %s", cloud)
 	}
@@ -38,7 +40,7 @@ func SetupGCP(ctx context.Context, bucket string) (*blob.Bucket, error) {
 	if err != nil {
 		return nil, err
 	}
-	return gcsblob.OpenBucket(ctx, bucket, c, nil)
+	return gcsblob.OpenBucket(ctx, c, bucket, nil)
 }
 
 // SetupAWS creates a connection to Simple Cloud Storage Service (S3).
@@ -53,5 +55,27 @@ func SetupAWS(ctx context.Context, bucket string) (*blob.Bucket, error) {
 		Credentials: credentials.NewEnvCredentials(),
 	}
 	s := session.Must(session.NewSession(c))
-	return s3blob.OpenBucket(ctx, s, bucket)
+	return s3blob.OpenBucket(ctx, s, bucket, nil)
+}
+
+// SetupCeph creates a connection to ROOK Ceph object storage with the S3 API.
+// See here for more information:
+// https://rook.io/docs/rook/v0.9/ceph-object.html
+func SetupCeph(ctx context.Context, bucket, endpoint string) (*blob.Bucket, error) {
+	// credentials.NewEnvCredentials assumes two environment variables are
+	// present:
+	// 1. AWS_ACCESS_KEY_ID, and
+	// 2. AWS_SECRET_ACCESS_KEY.
+	creds := credentials.NewEnvCredentials()
+
+	awsConfig := aws.NewConfig().
+		WithRegion("us-east-1").
+		WithCredentials(creds).
+		WithEndpoint(endpoint).
+		WithS3ForcePathStyle(true).
+		WithDisableSSL(true).
+		WithMaxRetries(20)
+
+	s := session.Must(session.NewSession(awsConfig))
+	return s3blob.OpenBucket(ctx, s, bucket, nil)
 }
