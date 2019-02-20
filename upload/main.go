@@ -12,21 +12,23 @@ import (
 )
 
 var (
-	bucket    string
-	backupDir string
 	cloud     string
+	bucket    string
+	endpoint  string
+	backupDir string
 )
 
 func init() {
 	flag.StringVar(&cloud, "cloud", "", "Cloud storage to use")
 	flag.StringVar(&bucket, "bucket", "tidb-backup", "Name of bucket")
+	flag.StringVar(&endpoint, "endpoint", "", "Endpoint of Ceph object store")
 	flag.StringVar(&backupDir, "backup-dir", "", "Backup directory")
 	flag.Parse()
 }
 
 func main() {
 	ctx := context.Background()
-	b, err := pkg.SetupBucket(context.Background(), cloud, bucket)
+	b, err := pkg.SetupBucket(context.Background(), cloud, bucket, endpoint)
 	if err != nil {
 		log.Fatalf("Failed to setup bucket: %s", err)
 	}
