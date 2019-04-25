@@ -7,7 +7,7 @@ import (
 	"io"
 	"log"
 
-	"github.com/tennix/tidb-cloud-backup/pkg"
+	"github.com/pingcap/tidb-cloud-backup/pkg"
 	"gocloud.dev/blob"
 	"gocloud.dev/blob/fileblob"
 )

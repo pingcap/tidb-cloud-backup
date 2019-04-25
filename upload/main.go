@@ -8,7 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/tennix/tidb-cloud-backup/pkg"
+	"github.com/pingcap/tidb-cloud-backup/pkg"
 )
 
 var (
