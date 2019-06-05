@@ -6,47 +6,62 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 
 	"github.com/pingcap/tidb-cloud-backup/pkg"
+
 	"gocloud.dev/blob"
 	"gocloud.dev/blob/fileblob"
 )
 
 var (
-	cloud    string
-	bucket   string
-	endpoint string
-	srcDir   string
-	destDir  string
+	cloud         string
+	region        string
+	bucket        string
+	endpoint      string
+	srcDir        string
+	destDir       string
+	keepAttrsFile bool
 )
 
 func init() {
 	flag.StringVar(&cloud, "cloud", "", "Cloud storage to use")
+	flag.StringVar(&region, "region", "", "The region to send requests to.")
 	flag.StringVar(&bucket, "bucket", "tidb-backup", "Name of bucket")
 	flag.StringVar(&endpoint, "endpoint", "", "Endpoint of Ceph object store")
 	flag.StringVar(&srcDir, "srcDir", "", "Source data directory in bucket")
 	flag.StringVar(&destDir, "destDir", "", "Destination directory on local")
+	flag.BoolVar(&keepAttrsFile, "keepAttrsFile", false, "Generate attrs file when downloading files")
 	flag.Parse()
 }
 
 func main() {
 	ctx := context.Background()
-	b, err := pkg.SetupBucket(context.Background(), cloud, bucket, endpoint)
+	b, err := pkg.SetupBucket(context.Background(), cloud, region, bucket, endpoint)
 	if err != nil {
 		log.Fatalf("Failed to setup bucket: %s", err)
 	}
-	err = download(ctx, b, srcDir, destDir)
+	err = download(ctx, b, srcDir, destDir, keepAttrsFile)
 	if err != nil {
 		log.Fatalf("Failed to download data from bucket: %s/%s to %s, error: %s", bucket, srcDir, destDir, err)
 	}
 }
 
-func download(ctx context.Context, b *blob.Bucket, srcDir, destDir string) error {
-	localBucket, err := fileblob.OpenBucket(destDir, nil)
-	if err != nil {
-		log.Fatal(err)
+func download(ctx context.Context, b *blob.Bucket, srcDir, destDir string, keepAttrsFile bool) error {
+	var localBucket *blob.Bucket
+	var err error
+	if keepAttrsFile {
+		localBucket, err = fileblob.OpenBucket(destDir, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
+	} else {
+		localBucket, err = pkg.OpenBucket(destDir, nil)
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
-	iter := b.List(&blob.ListOptions{Prefix: srcDir})
+	iter := b.List(&blob.ListOptions{Prefix: strings.TrimPrefix(srcDir, "/")})
 	for {
 		obj, err := iter.Next(ctx)
 		if err == io.EOF {
