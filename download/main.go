@@ -8,10 +8,10 @@ import (
 	"log"
 	"strings"
 
-	"gocloud.dev/blob/fileblob"
-
 	"github.com/pingcap/tidb-cloud-backup/pkg"
+
 	"gocloud.dev/blob"
+	"gocloud.dev/blob/fileblob"
 )
 
 var (
