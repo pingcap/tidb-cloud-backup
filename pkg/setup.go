@@ -16,14 +16,14 @@ import (
 )
 
 // SetupBucket creates a connection to a particular cloud provider's blob storage.
-func SetupBucket(ctx context.Context, cloud, bucket, endpoint string) (*blob.Bucket, error) {
+func SetupBucket(ctx context.Context, cloud, region, bucket, endpoint string) (*blob.Bucket, error) {
 	switch cloud {
 	case "aws":
-		return SetupAWS(ctx, bucket)
+		return SetupAWS(ctx, region, bucket)
 	case "gcp":
 		return SetupGCP(ctx, bucket)
 	case "ceph":
-		return SetupCeph(ctx, bucket, endpoint)
+		return SetupCeph(ctx, region, bucket, endpoint)
 	default:
 		return nil, fmt.Errorf("invalid cloud provider: %s", cloud)
 	}
@@ -46,10 +46,14 @@ func SetupGCP(ctx context.Context, bucket string) (*blob.Bucket, error) {
 }
 
 // SetupAWS creates a connection to Simple Cloud Storage Service (S3).
-func SetupAWS(ctx context.Context, bucket string) (*blob.Bucket, error) {
+func SetupAWS(ctx context.Context, region, bucket string) (*blob.Bucket, error) {
+	if len(region) == 0 {
+		// Backward compatible
+		region = "us-east-2"
+	}
 	c := &aws.Config{
 		// Either hard-code the region or use AWS_REGION.
-		Region: aws.String("us-east-2"),
+		Region: aws.String(region),
 		// credentials.NewEnvCredentials assumes two environment variables are
 		// present:
 		// 1. AWS_ACCESS_KEY_ID, and
@@ -101,15 +105,18 @@ func checkBucket(bucket string, config *aws.Config) error {
 // SetupCeph creates a connection to ROOK Ceph object storage with the S3 API.
 // See here for more information:
 // https://rook.io/docs/rook/v0.9/ceph-object.html
-func SetupCeph(ctx context.Context, bucket, endpoint string) (*blob.Bucket, error) {
+func SetupCeph(ctx context.Context, region, bucket, endpoint string) (*blob.Bucket, error) {
 	// credentials.NewEnvCredentials assumes two environment variables are
 	// present:
 	// 1. AWS_ACCESS_KEY_ID, and
 	// 2. AWS_SECRET_ACCESS_KEY.
 	creds := credentials.NewEnvCredentials()
 
+	if len(region) == 0 {
+		region = ":default-placement"
+	}
 	awsConfig := aws.NewConfig().
-		WithRegion("us-east-1").
+		WithRegion(region).
 		WithCredentials(creds).
 		WithEndpoint(endpoint).
 		WithS3ForcePathStyle(true).

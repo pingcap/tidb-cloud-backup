@@ -3,16 +3,19 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pingcap/tidb-cloud-backup/pkg"
 )
 
 var (
 	cloud     string
+	region    string
 	bucket    string
 	endpoint  string
 	backupDir string
@@ -20,6 +23,7 @@ var (
 
 func init() {
 	flag.StringVar(&cloud, "cloud", "", "Cloud storage to use")
+	flag.StringVar(&region, "region", "", "The region to send requests to.")
 	flag.StringVar(&bucket, "bucket", "tidb-backup", "Name of bucket")
 	flag.StringVar(&endpoint, "endpoint", "", "Endpoint of Ceph object store")
 	flag.StringVar(&backupDir, "backup-dir", "", "Backup directory")
@@ -28,12 +32,12 @@ func init() {
 
 func main() {
 	ctx := context.Background()
-	b, err := pkg.SetupBucket(context.Background(), cloud, bucket, endpoint)
+	b, err := pkg.SetupBucket(context.Background(), cloud, region, bucket, endpoint)
 	if err != nil {
 		log.Fatalf("Failed to setup bucket: %s", err)
 	}
 
-	base := filepath.Base(backupDir)
+	prefixDir := fmt.Sprintf("%s/", filepath.Dir(backupDir))
 	err = filepath.Walk(backupDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -45,7 +49,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to read file: %s", err)
 		}
-		w, err := b.NewWriter(ctx, filepath.Join(base, info.Name()), nil)
+		w, err := b.NewWriter(ctx, strings.TrimPrefix(path, prefixDir), nil)
 		if err != nil {
 			log.Fatalf("Failed to obtain writer: %s", err)
 		}
