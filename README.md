@@ -12,6 +12,11 @@ go build -o bin/uploader upload/main.go
 go build -o bin/downloader download/main.go
 ```
 
+### metabackup
+``` shell
+go build -o bin/metabackup metabackup/main.go
+```
+
 ### build image
 ``` shell
 docker build -t pingcap/tidb-cloud-backup .
