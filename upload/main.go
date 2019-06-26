@@ -45,6 +45,7 @@ func main() {
 		if info.IsDir() {
 			return nil
 		}
+		log.Println("start to process file", path)
 		data, err := ioutil.ReadFile(path)
 		if err != nil {
 			log.Fatalf("Failed to read file: %s", err)
