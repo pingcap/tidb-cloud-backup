@@ -3,7 +3,9 @@ package pkg
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
@@ -115,13 +117,17 @@ func SetupCeph(ctx context.Context, region, bucket, endpoint string) (*blob.Buck
 	if len(region) == 0 {
 		region = ":default-placement"
 	}
+	client := &http.Client{
+		Timeout: time.Duration(160 * time.Second),
+	}
 	awsConfig := aws.NewConfig().
 		WithRegion(region).
 		WithCredentials(creds).
 		WithEndpoint(endpoint).
 		WithS3ForcePathStyle(true).
 		WithDisableSSL(true).
-		WithMaxRetries(20)
+		WithMaxRetries(20).
+		WithHTTPClient(client)
 
 	err := checkBucket(bucket, awsConfig)
 	if err != nil {
