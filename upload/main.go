@@ -9,7 +9,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/pingcap/tidb-cloud-backup/pkg"
 )
 
@@ -45,6 +47,8 @@ func main() {
 		if info.IsDir() {
 			return nil
 		}
+		start := time.Now().Unix()
+		log.Println("start to process file", "size=", humanize.Bytes(uint64(info.Size())), "path=", path)
 		data, err := ioutil.ReadFile(path)
 		if err != nil {
 			log.Fatalf("Failed to read file: %s", err)
@@ -59,6 +63,11 @@ func main() {
 		}
 		if err = w.Close(); err != nil {
 			log.Fatalf("Failed to close: %s", err)
+		}
+		log.Println("upload file done", path)
+		duration := time.Now().Unix() - start
+		if duration-start > 120 {
+			log.Println("slow upload file", path, duration)
 		}
 		return nil
 	})
