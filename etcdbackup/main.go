@@ -36,7 +36,7 @@ func main() {
 		log.Fatalf("Failed to create tls config: %v", err)
 	}
 
-	// etcd endpoint is divide by comma
+	// etcd endpoint is separated by comma
 	endpoints := strings.Split(etcdEndpoint, ",")
 
 	// Save snapshot and return the byte array data

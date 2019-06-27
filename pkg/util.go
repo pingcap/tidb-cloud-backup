@@ -15,12 +15,12 @@ func ResovleBackupFromPathSuffix(pathSuffix string) (string, error) {
 		return "", errors.New("len of path suffix should be more than 2")
 	}
 
-	timeStamp, err := swag.ConvertInt64(s[len(s)-2])
+	timestamp, err := swag.ConvertInt64(s[len(s)-2])
 	if err != nil {
 		return "", err
 	}
 
-	tm := time.Unix(timeStamp, 0)
+	tm := time.Unix(timestamp, 0)
 
 	backupName := fmt.Sprintf("scheduled-backup-%s", tm.Format(time.RFC3339))
 	return backupName, nil
