@@ -22,6 +22,6 @@ func ResovleBackupFromPathSuffix(pathSuffix string) (string, error) {
 
 	tm := time.Unix(timestamp, 0)
 
-	backupName := fmt.Sprintf("scheduled-backup-%s", tm.Format(time.RFC3339))
+	backupName := fmt.Sprintf("scheduled-backup-%s", tm.Format("20060102-150405"))
 	return backupName, nil
 }
