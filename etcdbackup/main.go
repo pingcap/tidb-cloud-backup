@@ -20,10 +20,10 @@ var (
 
 func init() {
 	flag.StringVar(&cloud, "cloud", "ceph", "Cloud storage to use")
-	flag.StringVar(&region, "region", "", "The region to send requests to.")
-	flag.StringVar(&bucket, "bucket", "tidb-meta-backup", "Name of bucket")
+	flag.StringVar(&region, "region", "", "The region to send requests to")
+	flag.StringVar(&bucket, "bucket", "tidb-etcd-backup", "Name of bucket")
 	flag.StringVar(&cephEndpoint, "cephEndpoint", "", "Endpoint of Ceph object store")
-	flag.StringVar(&etcdEndpoint, "etcdEndpoint", "", "Endpoint of Etcd object store")
+	flag.StringVar(&etcdEndpoint, "etcdEndpoint", "", "Endpoint of Etcd")
 	flag.Parse()
 }
 

@@ -14,7 +14,7 @@ go build -o bin/downloader download/main.go
 
 ### metabackup
 ``` shell
-go build -o bin/metabackup metabackup/main.go
+go build -o bin/etcdbackuper etcdbackup/main.go
 ```
 
 ### build image
