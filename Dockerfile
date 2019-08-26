@@ -7,9 +7,8 @@ ADD bin/etcdbackuper /usr/local/bin/etcdbackuper
 
 RUN \
   chmod 755 backup.sh \
-  && cp backup.sh /usr/local/bin/uploader \
-  && cp backup.sh /usr/local/bin/downloader \
-  && rm backup.sh \
+  && ln -s /backup.sh /usr/local/bin/uploader \
+  && ln -s /backup.sh /usr/local/bin/downloader \
   && wget -nv https://github.com/ncw/rclone/releases/download/${VERSION}/rclone-${VERSION}-linux-amd64.zip \
   && unzip rclone-${VERSION}-linux-amd64.zip \
   && mv rclone-${VERSION}-linux-amd64/rclone /usr/local/bin/rclone \

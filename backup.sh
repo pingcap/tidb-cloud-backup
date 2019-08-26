@@ -38,17 +38,22 @@ do
   esac
 done
 
-if [ "$CLOUD" = "gcp" ] && [ -z "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+if [ "${CLOUD}" != "gcp" ] && [ "${CLOUD}" != "aws" ] && [ "${CLOUD}" != "ceph" ]; then
+  echo "Cloud ${CLOUD:-"<empty>"} is not supported" >&2
+  exit 1
+fi
+
+if [ "${CLOUD}" = "gcp" ] && [ -z "${GOOGLE_APPLICATION_CREDENTIALS}" ]; then
   echo "GCP credentials path is not set" >&2
   exit 1
 fi
 
-if [ "$CLOUD" = "ceph" ] || [ "$CLOUD" = "aws" ]; then
-  if [ -z "$AWS_ACCESS_KEY_ID" ]; then
+if [ "${CLOUD}" = "ceph" ] || [ "${CLOUD}" = "aws" ]; then
+  if [ -z "${AWS_ACCESS_KEY_ID}" ]; then
     echo "S3 access key is not set" >&2
     exit 1
   fi
-  if [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+  if [ -z "${AWS_SECRET_ACCESS_KEY}" ]; then
     echo "S3 access secret is not set" >&2
     exit 1
   fi
@@ -77,7 +82,7 @@ service_account_file = ${GOOGLE_APPLICATION_CREDENTIALS}
 EOF
 
 export BACKUP_NAME=$(basename ${BACKUP_DIR})
-if [ "$RUN_MODE" = "uploader" ]; then
+if [ "${RUN_MODE}" = "uploader" ]; then
   export BACKUP_BASE_DIR=$(dirname ${BACKUP_DIR})
   tar -cf - ${BACKUP_NAME} -C ${BACKUP_BASE_DIR} | pigz -p 16 > ${BACKUP_BASE_DIR}/${BACKUP_NAME}.tgz
   rclone --config /tmp/rclone.conf copyto ${BACKUP_BASE_DIR}/${BACKUP_NAME}.tgz ${CLOUD}:${BUCKET}/${BACKUP_DIR}/${BACKUP_NAME}.tgz
@@ -88,6 +93,6 @@ elif [ "$RUN_MODE" = "downloader" ]; then
     tar -xzvf ${DEST_DIR}/${BACKUP_NAME}.tgz -C ${DEST_DIR} && rm ${DEST_DIR}/${BACKUP_NAME}.tgz
   fi
 else
-  echo "Unknown run mode $RUN_MODE" >&2
+  echo "Unknown run mode ${RUN_MODE}" >&2
   exit 1
 fi
