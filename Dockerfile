@@ -3,7 +3,7 @@ FROM pingcap/tidb-enterprise-tools:latest
 ARG VERSION=v1.48.0
 RUN apk update && apk add ca-certificates
 ADD backup.sh backup.sh
-# ADD bin/etcdbackuper /usr/local/bin/etcdbackuper
+ADD bin/etcdbackuper /usr/local/bin/etcdbackuper
 
 RUN \
   chmod 755 backup.sh \
