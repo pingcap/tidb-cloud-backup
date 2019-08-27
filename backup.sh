@@ -81,11 +81,14 @@ type = google cloud storage
 service_account_file = ${GOOGLE_APPLICATION_CREDENTIALS}
 EOF
 
+# In tidb-backup job downloader and uploader take different dir parameters
+# During uploading, the backup_dir is /<BASE_DIR>/<BACKUP_NAME>/, and the data will be uploaded to /<BACKUP_NAME>
+# During downloading, the backup_dir is /<BACKUP_NAME>/, and the data will be downloaded from /<BACKUP_NAME>
 export BACKUP_NAME=$(basename ${BACKUP_DIR})
 if [ "${RUN_MODE}" = "uploader" ]; then
   export BACKUP_BASE_DIR=$(dirname ${BACKUP_DIR})
   tar -cf - ${BACKUP_NAME} -C ${BACKUP_BASE_DIR} | pigz -p 16 > ${BACKUP_BASE_DIR}/${BACKUP_NAME}.tgz
-  rclone --config /tmp/rclone.conf copyto ${BACKUP_BASE_DIR}/${BACKUP_NAME}.tgz ${CLOUD}:${BUCKET}/${BACKUP_DIR}/${BACKUP_NAME}.tgz
+  rclone --config /tmp/rclone.conf copyto ${BACKUP_BASE_DIR}/${BACKUP_NAME}.tgz ${CLOUD}:${BUCKET}/${BACKUP_NAME}/${BACKUP_NAME}.tgz
   rm ${BACKUP_BASE_DIR}/${BACKUP_NAME}.tgz
 elif [ "$RUN_MODE" = "downloader" ]; then
   rclone --config /tmp/rclone.conf copyto ${CLOUD}:${BUCKET}/${BACKUP_DIR} ${DEST_DIR}
