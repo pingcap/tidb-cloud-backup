@@ -16,3 +16,17 @@ RUN \
   && chmod 755 /usr/local/bin/rclone \
   && rm -rf rclone-${VERSION}-linux-amd64.zip \
   && rm -rf rclone-${VERSION}-linux-amd64
+
+RUN apk --no-cache add \
+  python \
+  py-pip \
+  jq \
+  bash \
+  git \
+  groff \
+  less \
+  mailcap \
+  bash \
+  && pip install --no-cache-dir awscli \
+  && apk del py-pip \
+  && rm -rf /var/cache/apk/* /root/.cache/pip/*

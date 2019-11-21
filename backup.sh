@@ -38,17 +38,31 @@ do
   esac
 done
 
+
 if [ "${CLOUD}" != "gcp" ] && [ "${CLOUD}" != "aws" ] && [ "${CLOUD}" != "ceph" ]; then
   echo "Cloud ${CLOUD:-"<empty>"} is not supported" >&2
   exit 1
 fi
 
-if [ "${CLOUD}" = "gcp" ] && [ -z "${GOOGLE_APPLICATION_CREDENTIALS}" ]; then
-  echo "GCP credentials path is not set" >&2
-  exit 1
-fi
+#if [ "${CLOUD}" = "gcp" ] && [ -z "${GOOGLE_APPLICATION_CREDENTIALS}" ]; then
+#  echo "GCP credentials path is not set" >&2
+#  exit 1
+#fi
 
 if [ "${CLOUD}" = "ceph" ] || [ "${CLOUD}" = "aws" ]; then
+    if [[ -z "${AWS_ROLE_ARN}" ]] ; then
+        echo "AWS_ROLE_ARN is not set"
+        exit 1
+    fi
+
+    role_arn=${AWS_ROLE_ARN}
+    aws_web_identity_token=$(cat ${AWS_WEB_IDENTITY_TOKEN_FILE})
+    session_name=$(basename ${BACKUP_DIR})
+    json_out=$(aws sts assume-role-with-web-identity --role-arn ${role_arn} --role-session-name ${session_name} --web-identity-token ${aws_web_identity_token})
+    export AWS_ACCESS_KEY_ID=$(echo ${json_out} | jq -r ".Credentials.AccessKeyId")
+    export AWS_SECRET_ACCESS_KEY=$(echo ${json_out} | jq -r ".Credentials.SecretAccessKey")
+    export AWS_SESSION_TOKEN=$(echo ${json_out} | jq -r ".Credentials.SessionToken" )
+
   if [ -z "${AWS_ACCESS_KEY_ID}" ]; then
     echo "S3 access key is not set" >&2
     exit 1
@@ -66,6 +80,7 @@ env_auth = false
 provider = ${S3_PROVIDER:-"AWS"}
 access_key_id = ${AWS_ACCESS_KEY_ID}
 secret_access_key = ${AWS_SECRET_ACCESS_KEY}
+session_token = ${AWS_SESSION_TOKEN}
 region = ${REGION}
 endpoint = ${ENDPOINT}
 [ceph]
@@ -78,7 +93,6 @@ region = :default-placement
 endpoint = ${ENDPOINT}
 [gcp]
 type = google cloud storage
-service_account_file = ${GOOGLE_APPLICATION_CREDENTIALS}
 EOF
 
 # In tidb-backup job downloader and uploader take different dir parameters

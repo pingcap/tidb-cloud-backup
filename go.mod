@@ -4,7 +4,7 @@ go 1.12
 
 require (
 	cloud.google.com/go v0.36.0 // indirect
-	github.com/aws/aws-sdk-go v1.16.36
+	github.com/aws/aws-sdk-go v1.25.30
 	github.com/coreos/etcd v3.3.11+incompatible
 	github.com/dustin/go-humanize v1.0.0
 	github.com/gin-contrib/pprof v1.2.0
@@ -18,3 +18,5 @@ require (
 	golang.org/x/xerrors v0.0.0-20190212162355-a5947ffaace3 // indirect
 	google.golang.org/genproto v0.0.0-20190215211957-bd968387e4aa // indirect
 )
+
+replace github.com/census-instrumentation/opencensus-proto v0.1.0-0.20181214143942-ba49f56771b8 => github.com/census-instrumentation/opencensus-proto v0.0.3-0.20181214143942-ba49f56771b8

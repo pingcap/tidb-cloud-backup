@@ -60,7 +60,6 @@ func SetupAWS(ctx context.Context, region, bucket string) (*blob.Bucket, error) 
 		// present:
 		// 1. AWS_ACCESS_KEY_ID, and
 		// 2. AWS_SECRET_ACCESS_KEY.
-		Credentials: credentials.NewEnvCredentials(),
 	}
 	s := session.Must(session.NewSession(c))
 	return s3blob.OpenBucket(ctx, s, bucket, nil)
