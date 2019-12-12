@@ -48,7 +48,7 @@ if [ "${CLOUD}" = "gcp" ] && [ -z "${GOOGLE_APPLICATION_CREDENTIALS}" ]; then
   exit 1
 fi
 
-if [ "${CLOUD}" = "ceph" ] || [ "${CLOUD}" = "aws" ]; then
+if [ "${CLOUD}" = "ceph" ]; then
   if [ -z "${AWS_ACCESS_KEY_ID}" ]; then
     echo "S3 access key is not set" >&2
     exit 1
@@ -59,13 +59,18 @@ if [ "${CLOUD}" = "ceph" ] || [ "${CLOUD}" = "aws" ]; then
   fi
 fi
 
+if [ "${CLOUD}" = "aws" ]; then
+    if [! -z "${AWS_ACCESS_KEY_ID}" ] && [ ! -z "${AWS_SECRET_ACCESS_KEY}" ]; then
+        export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+        export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    fi
+fi
+
 cat <<EOF > /tmp/rclone.conf
 [aws]
 type = s3
-env_auth = false
+env_auth = true
 provider = ${S3_PROVIDER:-"AWS"}
-access_key_id = ${AWS_ACCESS_KEY_ID}
-secret_access_key = ${AWS_SECRET_ACCESS_KEY}
 region = ${REGION}
 endpoint = ${ENDPOINT}
 [ceph]
