@@ -1,6 +1,8 @@
 FROM pingcap/tidb-enterprise-tools:latest
 
 ARG VERSION=v1.48.0
+ARG DM_VERSION=v1.0.3
+
 RUN apk update && apk add ca-certificates
 ADD backup.sh backup.sh
 ADD bin/etcdbackuper /usr/local/bin/etcdbackuper
@@ -16,3 +18,12 @@ RUN \
   && chmod 755 /usr/local/bin/rclone \
   && rm -rf rclone-${VERSION}-linux-amd64.zip \
   && rm -rf rclone-${VERSION}-linux-amd64
+
+RUN \
+  wget -nv http://download.pingcap.org/dm-${DM_VERSION}-linux-amd64.tar.gz \
+  && tar -xzf dm-${DM_VERSION}-linux-amd64.tar.gz \
+  && mv dm-${DM_VERSION}-linux-amd64/bin/mydumper /mydumper \
+  && chmod 755 /mydumper \
+  && rm -rf dm-${DM_VERSION}-linux-amd64.tar.gz \
+  && rm -rf dm-${DM_VERSION}-linux-amd64
+
