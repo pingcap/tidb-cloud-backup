@@ -38,6 +38,9 @@ do
   esac
 done
 
+# Don't echo credentials
+set +x
+
 if [ "${CLOUD}" != "gcp" ] && [ "${CLOUD}" != "aws" ] && [ "${CLOUD}" != "ceph" ]; then
   echo "Cloud ${CLOUD:-"<empty>"} is not supported" >&2
   exit 1
@@ -80,6 +83,8 @@ endpoint = ${ENDPOINT}
 type = google cloud storage
 service_account_file = ${GOOGLE_APPLICATION_CREDENTIALS}
 EOF
+
+set -x
 
 # In tidb-backup job downloader and uploader take different dir parameters
 # During uploading, the backup_dir is /<BASE_DIR>/<BACKUP_NAME>/, and the data will be uploaded to /<BACKUP_NAME>
